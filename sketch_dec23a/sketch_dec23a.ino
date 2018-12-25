@@ -1,49 +1,83 @@
-long scheduledNextTick;
+unsigned long scheduled_next_tick = 0;
+unsigned long last_report_us = 0;
 
-long lastReportMillis = 0;
+int in1p_pin = 36;
+int in1n_pin = 39;
+// int in22a_pin = 34;
+// int in22b_pin = 35;
 
-int in100a_pin = 39;
-int in100b_pin = 34;
-int in22a_pin = 35;
-int in22b_pin = 32;
+unsigned long loop_us = 130;
+float in1d_filt2 = 0.0;
 
-long loopDtMs = 1;
+//0.0 => 9
+//2.8 => 15
+//1.8 => 12
+//11.1 => 43
+//14.0 => 53
+//12.9 => 47
 
+#define IN1D2_HIST_CNT 512
+float in1d2_hist[IN1D2_HIST_CNT];
+int in1d2_hist_idx = 0;
+float in1d2_sum = 0.0;
 
 void setup()
 {
-    scheduledNextTick = (long)millis() + loopDtMs;
-    pinMode(in100a_pin, INPUT);
-    pinMode(in100b_pin, INPUT);
-    pinMode(in22a_pin, INPUT);
-    pinMode(in22b_pin, INPUT);
+    for(int i = 0; i < IN1D2_HIST_CNT; i++) {
+        in1d2_hist[i] = 0.0;
+    }
+    scheduled_next_tick = micros() + loop_us;
+    pinMode(in1p_pin, INPUT);
+    pinMode(in1n_pin, INPUT);
     Serial.begin(115200);
 }
 
 void loop()
 {
-    long now = (long)millis();
-    if( scheduledNextTick - now > 0 ) {
+    unsigned long now = micros();
+    signed long time_til_tick = (signed long)(scheduled_next_tick - now);
+    if(time_til_tick > 0) {
         return;
     }
 
-    scheduledNextTick += loopDtMs;
+    scheduled_next_tick += loop_us;
 
-    float in100a = (float)analogRead(in100a_pin) / 4096.0;
-    float in100b = (float)analogRead(in100b_pin) / 4096.0;
-    float in22a = (float)analogRead(in22a_pin) / 4096.0;
-    float in22b = (float)analogRead(in22b_pin) / 4096.0;
+    float in1p = (float)analogRead(in1p_pin) / 4096.0 * 1000.0;
+    float in1n = (float)analogRead(in1n_pin) / 4096.0 * 1000.0;
+
+    float in1d = in1p - in1n;
+    float in1d2 = in1d * in1d;
+
+    in1d2_sum -= in1d2_hist[in1d2_hist_idx];
+    in1d2_hist[in1d2_hist_idx] = in1d2;
+    in1d2_sum += in1d2;
+    in1d2_hist_idx = (in1d2_hist_idx + 1) % IN1D2_HIST_CNT;
+    //in1d2_sum *= 0.9999;  //hack to make numerically stable.  don't accum float rounding error.
+    float in1d_rms = sqrt(in1d2_sum / IN1D2_HIST_CNT);
+    if(in1d2_sum < 0.0) {
+        in1d_rms = 0.0;
+    }
+
+    float amps = (in1d_rms - 8.0) * 0.32;
+    if(amps < 0.0) {
+        amps = 0.0;
+    }
+
+    //in1d_filt2 = in1d_filt2 * 0.995 + in1d * in1d * 0.005;
+    //float in1d_filt = sqrt(in1d_filt2);
+
 
     ///////////////////////////////////////////////////////////////////////////
     // REPORTING
     ///////////////////////////////////////////////////////////////////////////
     if(1) {  // raw heart signal diagnostics
-        if(now - lastReportMillis > 0) {
-            lastReportMillis = now;
-            Serial.print(10.0*in100a);Serial.print(",");
-            Serial.print(10.0*in100b);Serial.print(",");
-            Serial.print(10.0*in22a);Serial.print(",");
-            Serial.print(10.0*in22b);Serial.println();
+        if(now - last_report_us > 0) {
+            last_report_us = now;
+            // Serial.print(100.0*in1p);Serial.print(",");
+            // Serial.print(100.0*in1n);Serial.print(",");
+            // Serial.print(in1d_rms);Serial.print(",");
+            // Serial.print(in1d);Serial.println();
+            Serial.print(amps);Serial.println();
         }
     }
 }
@@ -135,10 +169,10 @@ void loop()
 //  client.print((String)"GET / HTTP/1.1\r\n" +
 //               "Host: " + String(host) + "\r\n" +
 //               "Connection: close\r\n\r\n");
-//  unsigned long timeout = millis();
+//  unsigned long timeout = micros();
 //  while (client.available() == 0) 
 //  {
-//    if (millis() - timeout > 5000) 
+//    if (micros() - timeout > 5000) 
 //    {
 //      Serial.println(">>> Client Timeout !");
 //      client.stop();
