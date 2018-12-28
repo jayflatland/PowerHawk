@@ -1,3 +1,10 @@
+#include <WiFi.h>
+#include <WiFiUdp.h>
+
+// WiFi network name and password:
+const char * networkName = "jaysplace2";
+const char * networkPswd = "deadbeef";
+
 unsigned long scheduled_next_tick = 0;
 unsigned long last_report_us = 0;
 
@@ -21,6 +28,29 @@ float in1d2_hist[IN1D2_HIST_CNT];
 int in1d2_hist_idx = 0;
 float in1d2_sum = 0.0;
 
+WiFiUDP Udp;
+
+void connectToWiFi(const char * ssid, const char * pwd)
+{
+    Serial.println("Connecting to WiFi network: " + String(ssid));
+
+    WiFi.begin(ssid, pwd);
+
+    while (WiFi.status() != WL_CONNECTED) 
+    {
+        delay(500);
+        Serial.print(".");
+    }
+
+    Serial.println();
+    Serial.println("WiFi connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    //Udp.begin(12345);
+}
+
+
 void setup()
 {
     for(int i = 0; i < IN1D2_HIST_CNT; i++) {
@@ -30,6 +60,7 @@ void setup()
     pinMode(in1p_pin, INPUT);
     pinMode(in1n_pin, INPUT);
     Serial.begin(115200);
+    connectToWiFi(networkName, networkPswd);
 }
 
 void loop()
@@ -71,13 +102,17 @@ void loop()
     // REPORTING
     ///////////////////////////////////////////////////////////////////////////
     if(1) {  // raw heart signal diagnostics
-        if(now - last_report_us > 0) {
+        if((long)(now - last_report_us) > 1000000) {
             last_report_us = now;
             // Serial.print(100.0*in1p);Serial.print(",");
             // Serial.print(100.0*in1n);Serial.print(",");
             // Serial.print(in1d_rms);Serial.print(",");
             // Serial.print(in1d);Serial.println();
             Serial.print(amps);Serial.println();
+            Udp.beginPacket("10.1.10.255", 12345);
+            unsigned char buf[] = "hi from jay...\r\n";
+            Udp.write(buf, sizeof(buf));
+            Udp.endPacket();
         }
     }
 }
