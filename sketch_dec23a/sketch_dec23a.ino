@@ -119,7 +119,7 @@ void loop()
     ///////////////////////////////////////////////////////////////////////////
     // REPORTING
     ///////////////////////////////////////////////////////////////////////////
-    if(1) {  // raw heart signal diagnostics
+    if(0) {  // raw heart signal diagnostics
         if((long)(now - last_report_us) > 0) {
             last_report_us = now;
             Serial.print(in1_rms);Serial.print(",");
