@@ -8,25 +8,32 @@ const char * networkPswd = "deadbeef";
 unsigned long scheduled_next_tick = 0;
 unsigned long last_report_us = 0;
 
-int in1p_pin = 36;
-int in1n_pin = 39;
-// int in22a_pin = 34;
-// int in22b_pin = 35;
+int ref_pin = 36;
+int in1_pin = 39;
+int in2_pin = 34;
+int in3_pin = 35;
+int in4_pin = 32;
 
-unsigned long loop_us = 130;
-float in1d_filt2 = 0.0;
+//we want a period to be an even multiple of 60Hz
+//1/60Hz = 16.7ms
+//at 512 samples were 60Hz period:
+//16.7ms / 512 = 65us
+//1024 samples gives us 2 periods of 60Hz
+unsigned long loop_us = 65;
+#define HIST_CNT 512
 
-//0.0 => 9
-//2.8 => 15
-//1.8 => 12
-//11.1 => 43
-//14.0 => 53
-//12.9 => 47
+int hist_idx = 0;
 
-#define IN1D2_HIST_CNT 512
-float in1d2_hist[IN1D2_HIST_CNT];
-int in1d2_hist_idx = 0;
-float in1d2_sum = 0.0;
+long in1_sq_hist[HIST_CNT];
+long in2_sq_hist[HIST_CNT];
+long in3_sq_hist[HIST_CNT];
+long in4_sq_hist[HIST_CNT];
+
+long in1_sq_sum = 0;
+long in2_sq_sum = 0;
+long in3_sq_sum = 0;
+long in4_sq_sum = 0;
+
 
 WiFiUDP Udp;
 
@@ -53,12 +60,20 @@ void connectToWiFi(const char * ssid, const char * pwd)
 
 void setup()
 {
-    for(int i = 0; i < IN1D2_HIST_CNT; i++) {
-        in1d2_hist[i] = 0.0;
+    for(int i = 0; i < HIST_CNT; i++) {
+        in1_sq_hist[i] = 0;
+        in2_sq_hist[i] = 0;
+        in3_sq_hist[i] = 0;
+        in4_sq_hist[i] = 0;
     }
+
     scheduled_next_tick = micros() + loop_us;
-    pinMode(in1p_pin, INPUT);
-    pinMode(in1n_pin, INPUT);
+    pinMode(ref_pin, INPUT);
+    pinMode(in1_pin, INPUT);
+    pinMode(in2_pin, INPUT);
+    pinMode(in3_pin, INPUT);
+    pinMode(in4_pin, INPUT);
+
     Serial.begin(115200);
     connectToWiFi(networkName, networkPswd);
 }
@@ -73,46 +88,68 @@ void loop()
 
     scheduled_next_tick += loop_us;
 
-    float in1p = (float)analogRead(in1p_pin) / 4096.0 * 1000.0;
-    float in1n = (float)analogRead(in1n_pin) / 4096.0 * 1000.0;
+    int ref = analogRead(ref_pin);
+    long in1 = (long)(analogRead(in1_pin) - ref);
+    long in2 = (long)(analogRead(in2_pin) - ref);
+    long in3 = (long)(analogRead(in3_pin) - ref);
+    long in4 = (long)(analogRead(in4_pin) - ref);
 
-    float in1d = in1p - in1n;
-    float in1d2 = in1d * in1d;
+    long in1_sq = in1 * in1;
+    long in2_sq = in2 * in2;
+    long in3_sq = in3 * in3;
+    long in4_sq = in4 * in4;
 
-    in1d2_sum -= in1d2_hist[in1d2_hist_idx];
-    in1d2_hist[in1d2_hist_idx] = in1d2;
-    in1d2_sum += in1d2;
-    in1d2_hist_idx = (in1d2_hist_idx + 1) % IN1D2_HIST_CNT;
+    in1_sq_sum += in1_sq - in1_sq_hist[hist_idx];
+    in2_sq_sum += in2_sq - in2_sq_hist[hist_idx];
+    in3_sq_sum += in3_sq - in3_sq_hist[hist_idx];
+    in4_sq_sum += in4_sq - in4_sq_hist[hist_idx];
+
+    in1_sq_hist[hist_idx] = in1_sq;
+    in2_sq_hist[hist_idx] = in2_sq;
+    in3_sq_hist[hist_idx] = in3_sq;
+    in4_sq_hist[hist_idx] = in4_sq;
+
+    hist_idx = (hist_idx + 1) % HIST_CNT;
+
     //in1d2_sum *= 0.9999;  //hack to make numerically stable.  don't accum float rounding error.
-    float in1d_rms = sqrt(in1d2_sum / IN1D2_HIST_CNT);
-    if(in1d2_sum < 0.0) {
-        in1d_rms = 0.0;
-    }
+    // float in1d_rms = sqrt(in1d2_sum / HIST_CNT);
+    // if(in1d2_sum < 0.0) {
+    //     in1d_rms = 0.0;
+    // }
 
-    float amps = (in1d_rms - 8.0) * 0.32;
-    if(amps < 0.0) {
-        amps = 0.0;
-    }
+    // //float amps = (in1d_rms - 8.0) * 0.32;
+    // if(amps < 0.0) {
+    //     amps = 0.0;
+    // }
 
-    //in1d_filt2 = in1d_filt2 * 0.995 + in1d * in1d * 0.005;
-    //float in1d_filt = sqrt(in1d_filt2);
-
+    // //in1d_filt2 = in1d_filt2 * 0.995 + in1d * in1d * 0.005;
+    // //float in1d_filt = sqrt(in1d_filt2);
 
     ///////////////////////////////////////////////////////////////////////////
     // REPORTING
     ///////////////////////////////////////////////////////////////////////////
     if(1) {  // raw heart signal diagnostics
-        if((long)(now - last_report_us) > 1000000) {
+        if((long)(now - last_report_us) > 0) {
+            float in1_rms = in1_sq_sum > 0 ? sqrt((float)(in1_sq_sum / HIST_CNT)) : 0.0;
+            float in2_rms = in2_sq_sum > 0 ? sqrt((float)(in2_sq_sum / HIST_CNT)) : 0.0;
+            float in3_rms = in3_sq_sum > 0 ? sqrt((float)(in3_sq_sum / HIST_CNT)) : 0.0;
+            float in4_rms = in4_sq_sum > 0 ? sqrt((float)(in4_sq_sum / HIST_CNT)) : 0.0;
+
             last_report_us = now;
-            // Serial.print(100.0*in1p);Serial.print(",");
+            Serial.print(in1_rms);Serial.print(",");
+            Serial.print(in2_rms);Serial.print(",");
+            Serial.print(in3_rms);Serial.print(",");
+            Serial.print(in4_rms);Serial.println();
+            //Serial.print(ref);Serial.println();
             // Serial.print(100.0*in1n);Serial.print(",");
             // Serial.print(in1d_rms);Serial.print(",");
             // Serial.print(in1d);Serial.println();
-            Serial.print(amps);Serial.println();
-            Udp.beginPacket("10.1.10.255", 12345);
-            unsigned char buf[] = "hi from jay...\r\n";
-            Udp.write(buf, sizeof(buf));
-            Udp.endPacket();
+
+            // Serial.print(amps);Serial.println();
+            // Udp.beginPacket("10.1.10.255", 12345);
+            // unsigned char buf[] = "hi from jay...\r\n";
+            // Udp.write(buf, sizeof(buf));
+            // Udp.endPacket();
         }
     }
 }
