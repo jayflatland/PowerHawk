@@ -5,9 +5,12 @@
 const char * networkName = "To The Oasis";
 const char * networkPswd = "deadbeef";
 
-unsigned long scheduled_next_tick = 0;
-unsigned long last_report_us = 0;
-unsigned long last_tx_us = 0;
+using timestamp_t = unsigned long;
+
+timestamp_t period_start_us = 0;
+timestamp_t period_end_us = 0;
+timestamp_t last_report_us = 0;
+timestamp_t last_tx_us = 0;
 
 int ref_pin = 36;
 int in1_pin = 39;
@@ -20,7 +23,7 @@ int in4_pin = 32;
 //at 512 samples were 60Hz period:
 //16.7ms / 512 = 65us
 //1024 samples gives us 2 periods of 60Hz
-unsigned long loop_us = 65;
+timestamp_t loop_us = 65;
 #define HIST_CNT 512
 
 int hist_idx = 0;
@@ -66,7 +69,6 @@ void setup()
         in4_sq_hist[i] = 0;
     }
 
-    scheduled_next_tick = micros() + loop_us;
     pinMode(ref_pin, INPUT);
     pinMode(in1_pin, INPUT);
     pinMode(in2_pin, INPUT);
@@ -79,13 +81,16 @@ void setup()
 
 void loop()
 {
-    unsigned long now = micros();
-    signed long time_til_tick = (signed long)(scheduled_next_tick - now);
-    if(time_til_tick > 0) {
+    timestamp_t now = micros();
+
+    //still in our measurement period, stop
+    if(period_start_us < now && now < period_end_us) {
         return;
     }
 
-    scheduled_next_tick += loop_us;
+    //update the measure period
+    period_start_us = now;
+    period_end_us = period_start_us + loop_us;
 
     int ref = analogRead(ref_pin);
     long in1 = (long)(analogRead(in1_pin) - ref);
@@ -119,8 +124,8 @@ void loop()
     ///////////////////////////////////////////////////////////////////////////
     // REPORTING
     ///////////////////////////////////////////////////////////////////////////
-    if(0) {  // raw heart signal diagnostics
-        if((long)(now - last_report_us) > 0) {
+    if(1) {  // raw heart signal diagnostics
+        if((long)(now - last_report_us) > 1000000) {
             last_report_us = now;
             Serial.print(in1_rms);Serial.print(",");
             Serial.print(in2_rms);Serial.print(",");
@@ -138,7 +143,8 @@ void loop()
                          String(in4_rms);
 
             // Serial.print(amps);Serial.println();
-            Udp.beginPacket("10.1.10.255", 10243);
+            // Udp.beginPacket("10.1.10.255", 10243);
+            Udp.beginPacket("10.1.10.10", 10243);
             //unsigned char buf[] = "hi from jay...\r\n";
             //Udp.write(buf, sizeof(buf));
             Udp.write((const uint8_t*)msg.c_str(), msg.length());
