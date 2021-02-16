@@ -2,7 +2,7 @@
 #include <WiFiUdp.h>
 
 // WiFi network name and password:
-const char * networkName = "jaysplace2";
+const char * networkName = "To The Oasis";
 const char * networkPswd = "deadbeef";
 
 unsigned long scheduled_next_tick = 0;
