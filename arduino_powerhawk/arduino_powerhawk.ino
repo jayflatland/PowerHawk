@@ -144,7 +144,7 @@ void loop()
 
             // Serial.print(amps);Serial.println();
             // Udp.beginPacket("10.1.10.255", 10243);
-            Udp.beginPacket("10.1.10.10", 10243);
+            Udp.beginPacket("10.1.10.11", 10243);
             //unsigned char buf[] = "hi from jay...\r\n";
             //Udp.write(buf, sizeof(buf));
             Udp.write((const uint8_t*)msg.c_str(), msg.length());
