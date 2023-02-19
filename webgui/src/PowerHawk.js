@@ -11,6 +11,7 @@ export default function PowerHawk(props) {
         "kW": 0.0,
         "amps": 0.0,
         "kW_hist": [],
+        "amps_hist": [],
     });
 
     const { lastMessage, readyState } = useWebSocket(socketUrl);
@@ -41,6 +42,7 @@ export default function PowerHawk(props) {
                         "kW": kW,
                         "amps": amps,
                         "kW_hist": [...prevState.kW_hist, kW],
+                        "amps_hist": [...prevState.amps_hist, amps],
                     };
                 }
                 catch {
@@ -91,7 +93,7 @@ export default function PowerHawk(props) {
             <C3Chart
                 data={{
                     columns: [
-                        ['kW', ...state.kW_hist]
+                        ['amps', ...state.amps_hist]
                     ]
                 }}
                 point={{ show: false }}
