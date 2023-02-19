@@ -82,7 +82,8 @@ export default function PowerHawk(props) {
                 }}
                 point={{ show: false }}
                 axis={{
-                    x:{show: false}
+                    x:{show: false},
+                    y: {tick: { format: d => d.toFixed(0) } },
                     //, y:{min: -10000, max: 10000}
                 }}
                 transition={{duration: 0}}
@@ -95,7 +96,8 @@ export default function PowerHawk(props) {
                 }}
                 point={{ show: false }}
                 axis={{
-                    x:{show: false}
+                    x: {show: false},
+                    y: {tick: { format: d => d.toFixed(2) } },
                 }}
                 transition={{duration: 0}}
             />
