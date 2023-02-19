@@ -4,6 +4,10 @@
 #include <ESPAsyncWebSrv.h>
 #include <sstream>
 
+// #include "esp_adc_cal.h"
+// #include <driver/adc_common.h>
+// #include <esp_wifi.h>
+
 #include "powerhawk_websocket.hpp"
 
 // WiFi network name and password:
@@ -15,9 +19,6 @@ powerhawk::powerhawk_websocket_type powerhawk_websocket(webserver);
 
 using timestamp_t = unsigned long;
 
-timestamp_t period_start_us = 0;
-timestamp_t period_end_us = 0;
-timestamp_t last_report_us = 0;
 timestamp_t last_tx_us = 0;
 
 int ref_pin = 36;
@@ -26,13 +27,15 @@ int in2_pin = 34;
 int in3_pin = 35;
 int in4_pin = 32;
 
-// we want a period to be an even multiple of 60Hz
-// 1/60Hz = 16.7ms
-// at 512 samples were 60Hz period:
-// 16.7ms / 512 = 65us
-// 1024 samples gives us 2 periods of 60Hz
-timestamp_t loop_us = 65;
 #define HIST_CNT 512
+
+#define AMPS_LONG_HIST_CNT 600
+
+float amps1_long_hist[AMPS_LONG_HIST_CNT];
+float amps2_long_hist[AMPS_LONG_HIST_CNT];
+float amps3_long_hist[AMPS_LONG_HIST_CNT];
+float amps4_long_hist[AMPS_LONG_HIST_CNT];
+int amps_long_hist_idx = 0;
 
 int hist_idx = 0;
 
@@ -110,16 +113,6 @@ void loop()
 
     timestamp_t now = micros();
 
-    // still in our measurement period, stop
-    if (period_start_us < now && now < period_end_us)
-    {
-        return;
-    }
-
-    // update the measure period
-    period_start_us = now;
-    period_end_us = period_start_us + loop_us;
-
     int ref = analogRead(ref_pin);
     int16_t in1 = (analogRead(in1_pin) - ref);
     int16_t in2 = (analogRead(in2_pin) - ref);
@@ -148,63 +141,52 @@ void loop()
 
     hist_idx = (hist_idx + 1) % HIST_CNT;
 
-    float reading_to_amps = 1.0 / 15.0;
-    float in1_rms = in1_sq_sum > 0 ? sqrt((float)(in1_sq_sum / HIST_CNT)) * reading_to_amps : 0.0;
-    float in2_rms = in2_sq_sum > 0 ? sqrt((float)(in2_sq_sum / HIST_CNT)) * reading_to_amps : 0.0;
-    float in3_rms = in3_sq_sum > 0 ? sqrt((float)(in3_sq_sum / HIST_CNT)) * reading_to_amps : 0.0;
-    float in4_rms = in4_sq_sum > 0 ? sqrt((float)(in4_sq_sum / HIST_CNT)) * reading_to_amps : 0.0;
+    if ((long)(now - last_tx_us) > 1000000)
+    {
+        float reading_to_amps = 1.0 / 15.0;
+        float amps1 = in1_sq_sum > 0 ? sqrt((float)(in1_sq_sum / HIST_CNT)) * reading_to_amps : 0.0;
+        float amps2 = in2_sq_sum > 0 ? sqrt((float)(in2_sq_sum / HIST_CNT)) * reading_to_amps : 0.0;
+        float amps3 = in3_sq_sum > 0 ? sqrt((float)(in3_sq_sum / HIST_CNT)) * reading_to_amps : 0.0;
+        float amps4 = in4_sq_sum > 0 ? sqrt((float)(in4_sq_sum / HIST_CNT)) * reading_to_amps : 0.0;
 
-    ///////////////////////////////////////////////////////////////////////////
-    // REPORTING
-    ///////////////////////////////////////////////////////////////////////////
-    if (0)
-    { // raw heart signal diagnostics
-        if ((long)(now - last_report_us) > 1000000)
+        amps1_long_hist[amps_long_hist_idx] = amps1;
+        amps2_long_hist[amps_long_hist_idx] = amps2;
+        amps3_long_hist[amps_long_hist_idx] = amps3;
+        amps4_long_hist[amps_long_hist_idx] = amps4;
+        amps_long_hist_idx = (amps_long_hist_idx + 1) % AMPS_LONG_HIST_CNT;
+
+        last_tx_us = now;
+
+        String msg = String(amps1) + "," +
+                        String(amps2) + "," +
+                        String(amps3) + "," +
+                        String(amps4);
+                        
+        Udp.beginPacket("10.1.10.11", 10243);
+        Udp.write((const uint8_t *)msg.c_str(), msg.length());
+        Udp.endPacket();
+
+        if(powerhawk_websocket.count() > 0)
         {
-            last_report_us = now;
-            Serial.print(in1_rms);
-            Serial.print(",");
-            Serial.print(in2_rms);
-            Serial.print(",");
-            Serial.print(in3_rms);
-            Serial.print(",");
-            Serial.print(in4_rms);
-            Serial.println();
-        }
-    }
-
-    if (1)
-    { // raw heart signal diagnostics
-        if ((long)(now - last_tx_us) > 1000000)
-        {
-            last_tx_us = now;
-            String msg = String(in1_rms) + "," +
-                         String(in2_rms) + "," +
-                         String(in3_rms) + "," +
-                         String(in4_rms);
-
-            // Serial.print(amps);Serial.println();
-            // Udp.beginPacket("10.1.10.255", 10243);
-            Udp.beginPacket("10.1.10.11", 10243);
-            // unsigned char buf[] = "hi from jay...\r\n";
-            // Udp.write(buf, sizeof(buf));
-            Udp.write((const uint8_t *)msg.c_str(), msg.length());
-            Udp.endPacket();
-
-            if(powerhawk_websocket.count() > 0)
-            {
-                // Serial.print("Sending ws - ");
-                // Serial.println(now);
-                std::stringstream ss;
-                ss << "{";
-                ss << "\"in1\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in1_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
-                ss << "\"in2\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in2_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
-                ss << "\"in3\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in3_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
-                ss << "\"in4\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in4_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "]";
-                ss << "}";
-                auto s = ss.str();
-                powerhawk_websocket.broadcast(s.data(), s.size());
-            }
+            std::stringstream ss;
+            ss << "{";
+            ss << "\"t\": " << now << ",";
+            ss << "\"amps1\": " << amps1 << ",";
+            ss << "\"amps2\": " << amps2 << ",";
+            ss << "\"amps3\": " << amps3 << ",";
+            ss << "\"amps4\": " << amps4 << ",";
+            ss << "\"amps1_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in1_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
+            ss << "\"amps2_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in2_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
+            ss << "\"amps3_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in3_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
+            ss << "\"amps4_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in4_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
+            ss << "\"amps1_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps1_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "],";
+            ss << "\"amps2_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps2_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "],";
+            ss << "\"amps3_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps3_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "],";
+            ss << "\"amps4_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps4_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "]";
+            ss << "}";
+            auto s = ss.str();
+            powerhawk_websocket.broadcast(s.data(), s.size());
         }
     }
 }
+
