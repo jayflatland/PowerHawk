@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import C3Chart from 'react-c3js';
 import 'c3/c3.css';
@@ -8,15 +8,17 @@ export default function PowerHawk(props) {
     const [state, setState] = useState({
         "in1": [],
         "in2": [],
-        "in3": [],
-        "in4": [],
+        "kW": 0.0,
+        "amps": 0.0,
+        "kW_hist": [],
     });
 
     const { lastMessage, readyState } = useWebSocket(socketUrl);
 
-    const canvasRef = useRef(null)
-    // const canvas = canvasRef.current
-    // const context = canvas.getContext('2d')
+    
+    function amps_rms(v) {
+        return (v.reduce((p, c) => p + c*c, 0.0) / v.length) ** 0.5;
+    }
 
     useEffect(() => {
         if (lastMessage !== null) {
@@ -26,14 +28,19 @@ export default function PowerHawk(props) {
             }
             // console.log(d);
 
+            var amps = amps_rms(state.in1) + amps_rms(state.in2);
+            var kW = amps * 240.0 * 1e-3;
+
+
             setState((prevState) => {
                 // console.log(prevState);
                 try {
                     return {
                         "in1": d.in1,
                         "in2": d.in2,
-                        "in3": d.in3,
-                        "in4": d.in4
+                        "kW": kW,
+                        "amps": amps,
+                        "kW_hist": [...prevState.kW_hist, kW],
                     };
                 }
                 catch {
@@ -57,20 +64,20 @@ export default function PowerHawk(props) {
         [ReadyState.CLOSED]: 'Closed',
         [ReadyState.UNINSTANTIATED]: 'Uninstantiated',
     }[readyState];
-
-    // console.log(state);
+    
     return (
         <div>
             <span>The WebSocket is currently {connectionStatus}</span>
+            <h1>Total Power is {state.kW.toFixed(2)}kW, {state.amps.toFixed(1)}A</h1>
             <C3Chart
                 data={{
                     // x: 'x',
                     columns: [
                         // ['x', ...state.times],
                         ['in1', ...state.in1],
-                        ['in2', ...state.in2],
-                        ['in3', ...state.in3],
-                        ['in4', ...state.in4]
+                        ['in2', ...state.in2]
+                        // ['in3', ...state.in3],
+                        // ['in4', ...state.in4]
                     ]
                 }}
                 point={{ show: false }}
@@ -80,7 +87,18 @@ export default function PowerHawk(props) {
                 }}
                 transition={{duration: 0}}
             />
-            {/* <canvas ref={canvasRef} {...props} /> */}
+            <C3Chart
+                data={{
+                    columns: [
+                        ['kW', ...state.kW_hist]
+                    ]
+                }}
+                point={{ show: false }}
+                axis={{
+                    x:{show: false}
+                }}
+                transition={{duration: 0}}
+            />
         </div>
     );
 };

@@ -197,10 +197,10 @@ void loop()
                 // Serial.println(now);
                 std::stringstream ss;
                 ss << "{";
-                ss << "\"in1\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in1_hist[(i + hist_idx) % HIST_CNT]; } ss << "],";
-                ss << "\"in2\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in2_hist[(i + hist_idx) % HIST_CNT]; } ss << "],";
-                ss << "\"in3\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in3_hist[(i + hist_idx) % HIST_CNT]; } ss << "],";
-                ss << "\"in4\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in4_hist[(i + hist_idx) % HIST_CNT]; } ss << "]";
+                ss << "\"in1\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in1_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
+                ss << "\"in2\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in2_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
+                ss << "\"in3\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in3_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
+                ss << "\"in4\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in4_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "]";
                 ss << "}";
                 auto s = ss.str();
                 powerhawk_websocket.broadcast(s.data(), s.size());
