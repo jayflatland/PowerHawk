@@ -45,7 +45,6 @@ export default function PowerHawk(props) {
 
             var amps = d.amps1 + d.amps2;
             var kW = amps * 240.0 * 1e-3;
-            var amps_hist = d.amps1_hist.map((v, i) => v + d.amps2_hist[i]);
 
             setState({
                     "amps1": d.amps1,
@@ -54,7 +53,7 @@ export default function PowerHawk(props) {
                     "amps2_scope": d.amps2_scope,
                     "kW": kW,
                     "amps": amps,
-                    "amps_hist": amps_hist,
+                    "amps_hist": d.amps_hist,
             });
         }
 

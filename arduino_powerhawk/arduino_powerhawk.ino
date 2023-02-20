@@ -29,7 +29,7 @@ int in4_pin = 32;
 
 #define HIST_CNT 512
 
-#define AMPS_LONG_HIST_CNT 600
+#define AMPS_LONG_HIST_CNT 512
 
 float amps1_long_hist[AMPS_LONG_HIST_CNT];
 float amps2_long_hist[AMPS_LONG_HIST_CNT];
@@ -170,19 +170,26 @@ void loop()
         {
             std::stringstream ss;
             ss << "{";
-            ss << "\"t\": " << now << ",";
-            ss << "\"amps1\": " << amps1 << ",";
-            ss << "\"amps2\": " << amps2 << ",";
-            ss << "\"amps3\": " << amps3 << ",";
-            ss << "\"amps4\": " << amps4 << ",";
-            ss << "\"amps1_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in1_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
-            ss << "\"amps2_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in2_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
-            ss << "\"amps3_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in3_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
-            ss << "\"amps4_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in4_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "],";
-            ss << "\"amps1_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps1_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "],";
-            ss << "\"amps2_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps2_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "],";
-            ss << "\"amps3_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps3_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "],";
-            ss << "\"amps4_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps4_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "]";
+            ss << "\"t\": " << now;
+            ss << ",\"amps1\": " << amps1;
+            ss << ",\"amps2\": " << amps2;
+            ss << ",\"amps3\": " << amps3;
+            ss << ",\"amps4\": " << amps4;
+            ss << ",\"amps1_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in1_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "]";
+            ss << ",\"amps2_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in2_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "]";
+            // ss << ",\"amps3_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in3_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "]";
+            // ss << ",\"amps4_scope\": ["; for (int i = 0; i < HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << in4_hist[(i + hist_idx) % HIST_CNT] * reading_to_amps; } ss << "]";
+            ss << ",\"amps_hist\": [";
+            for (int i = 0; i < AMPS_LONG_HIST_CNT; i++)
+            {
+                if (i > 0) {ss << ',';} 
+                ss << amps1_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT] + amps2_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT];
+            }
+            ss << "]";
+            // ss << ",\"amps1_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps1_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "]";
+            // ss << ",\"amps2_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps2_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "]";
+            // ss << ",\"amps3_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps3_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "]";
+            // ss << ",\"amps4_hist\": ["; for (int i = 0; i < AMPS_LONG_HIST_CNT; i++) { if (i > 0) {ss << ',';} ss << amps4_long_hist[(amps_long_hist_idx + i) % AMPS_LONG_HIST_CNT]; } ss << "]";
             ss << "}";
             auto s = ss.str();
             powerhawk_websocket.broadcast(s.data(), s.size());
