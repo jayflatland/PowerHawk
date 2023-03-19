@@ -3,25 +3,26 @@ import useWebSocket, { ReadyState } from 'react-use-websocket';
 import C3Chart from 'react-c3js';
 import 'c3/c3.css';
 
-function parse_csv(text) {
-    var lines = text.split(/\r?\n/);
-    var hdr = lines[0];
-    lines = lines.slice(1);
-    var columns = hdr.split(',');
+// function parse_csv(text) {
+//     var lines = text.split(/\r?\n/);
+//     var hdr = lines[0];
+//     lines = lines.slice(1);
+//     var columns = hdr.split(',');
 
-    var records = lines.map(line => {
-        return line.split(',')
-            .map((v, i) => {return {key: i, val: v};})
-            .reduce((accum, c) => {
-            accum[columns[c.key]] = c.val;
-            return accum;
-        }, {});
-    });
-    return records;
-}
+//     var records = lines.map(line => {
+//         return line.split(',')
+//             .map((v, i) => {return {key: i, val: v};})
+//             .reduce((accum, c) => {
+//             accum[columns[c.key]] = c.val;
+//             return accum;
+//         }, {});
+//     });
+//     return records;
+// }
 
 export default function PowerHawk(props) {
-    const [socketUrl] = useState('ws://10.1.10.212/powerhawk');//prod
+    // const [socketUrl] = useState('ws://10.1.10.212/powerhawk');//prod
+    const [socketUrl] = useState('ws://powerhawk.jayflatland.com/sensor');//prod
     // const [socketUrl] = useState('ws://10.1.10.223/powerhawk');//test
     const [state, setState] = useState({
         "amps1": 0.0,
