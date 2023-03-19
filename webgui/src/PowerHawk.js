@@ -22,7 +22,7 @@ import 'c3/c3.css';
 
 export default function PowerHawk(props) {
     // const [socketUrl] = useState('ws://10.1.10.212/powerhawk');//prod
-    const [socketUrl] = useState('ws://powerhawk.jayflatland.com/sensor');//prod
+    const [socketUrl] = useState('wss://powerhawk.jayflatland.com/sensor');//prod
     // const [socketUrl] = useState('ws://10.1.10.223/powerhawk');//test
     const [state, setState] = useState({
         "amps1": 0.0,
