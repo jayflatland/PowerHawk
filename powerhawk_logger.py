@@ -25,7 +25,7 @@ logfd = None
 while True:
     # print('\nwaiting to receive message')
     data, address = sock.recvfrom(4096)
-    #print(data)
+    print(data, address)
     msg = data.decode('utf-8')
 
     parts = [float(v) for v in msg.split(',')]
