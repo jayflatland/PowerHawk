@@ -157,6 +157,12 @@ void loop()
 
         last_tx_us = now;
 
+        if(WiFi.status() != WL_CONNECTED)
+        {
+            Serial.println("Reconnecting to wifi...");
+            connectToWiFi(networkName, networkPswd);
+        }
+
         String msg = String(amps1) + "," +
                         String(amps2) + "," +
                         String(amps3) + "," +
@@ -166,6 +172,9 @@ void loop()
         Udp.write((const uint8_t *)msg.c_str(), msg.length());
         Udp.endPacket();
 
+        // msg += "," + String(WiFi.status());
+        // Serial.println(msg.c_str());
+        
         if(powerhawk_websocket.count() > 0)
         {
             std::stringstream ss;
