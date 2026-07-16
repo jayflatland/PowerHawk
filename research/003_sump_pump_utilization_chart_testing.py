@@ -7,7 +7,7 @@ sns.set_style("whitegrid")
 
 # %%
 
-df = pd.read_csv("https://jayflatland.com/powerhawk/logs/2026-07-10_housepower.csv")
+df = pd.read_csv("https://jayflatland.com/powerhawk/logs/2026-07-16_housepower.csv")
 
 df = df.set_index(pd.to_datetime(df.ts))
 df['ts'] = df.index
@@ -19,11 +19,14 @@ if r == 1 and c == 1: axs = [axs]
 elif r == 1 or c == 1:  axs = list(axs)
 else:         axs = [axs[i, j] for j in range(c) for i in range(r)]  # flatten
 
+df['amps4_filtered'] = df.amps4.rolling(pd.Timedelta('5s')).mean() - df.amps4.rolling(pd.Timedelta('1m')).mean()
+
 plt.sca(axs.pop(0))
 plt.plot(df.amps4)
 plt.plot(df.amps4.rolling(pd.Timedelta('5s')).mean())
+plt.plot(df.amps4_filtered)
 
-df['running'] = df['amps4'] > 1.8
+df['running'] = df['amps4_filtered'] > 1.8
 df['pump'] = (df.running==1) & (df.running.shift(1)==0)
 
 df = df[df.pump]

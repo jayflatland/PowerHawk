@@ -58,8 +58,8 @@ def handle_sumppump():
     latest_ts_age_style = "color: white; background-color: red;"
     df.set_index(pd.DatetimeIndex(df['ts']), inplace=True)
     df['ts'] = df.index
-    df['amps4_ma'] = df.amps4.rolling(pd.Timedelta('5s')).mean()
-    df['running'] = df['amps4_ma'] > 2.0
+    df['amps4_filtered'] = df.amps4.rolling(pd.Timedelta('5s')).mean() - df.amps4.rolling(pd.Timedelta('1m')).mean()
+    df['running'] = df['amps4_filtered'] > 2.0
     #df = df.set_index(df.ts)
     latest_ts = df.index.max()
     lprint("latest_ts=", latest_ts)
