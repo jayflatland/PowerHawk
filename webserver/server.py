@@ -188,6 +188,8 @@ body {
     border-bottom: 1px solid var(--border);
 }
 .topbar h1 { margin: 0; font-size: 18px; font-weight: 650; }
+.topbar h1 a { color: inherit; text-decoration: none; }
+.topbar h1 a:hover { color: var(--accent); }
 .pill {
     display: inline-flex;
     align-items: center;
@@ -592,7 +594,7 @@ def handle_sumppump():
     </head>
     <body>
     <header class="topbar">
-        <h1>Sump Pump</h1>
+        <h1><a href="?" title="Back to current data">Sump Pump</a></h1>
         <span class="pill {status_class}">{status_text}</span>
     </header>
     <main>
