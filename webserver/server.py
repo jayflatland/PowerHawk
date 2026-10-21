@@ -288,15 +288,11 @@ main {
 }
 .tile .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .tile .value { font-size: 26px; font-weight: 650; margin-top: 4px; font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
 .chart-box { position: relative; height: 280px; }
-.chart-box canvas { touch-action: pan-y; }
-.drag-box {
-    position: absolute;
-    background: var(--accent-soft);
-    border-left: 1px solid var(--accent);
-    border-right: 1px solid var(--accent);
-    pointer-events: none;
-}
+.card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.chart-tools { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.btn:disabled { opacity: 0.5; cursor: default; }
 .tablebox { max-height: 420px; overflow: auto; }
 table.runs { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 table.runs th, table.runs td { padding: 7px 12px; text-align: left; white-space: nowrap; }
@@ -327,6 +323,10 @@ PAGE_JS = """
     const go = (a, b) => { location.search = new URLSearchParams({start: fmtLocal(a), end: fmtLocal(b)}).toString(); };
     const charts = [];
 
+    // Live view reloads every minute, unless the chart is zoomed or panned
+    let viewChanged = false;
+    if (DATA.live) setInterval(() => { if (!viewChanged) location.reload(); }, 60 * 1000);
+
     Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
     Chart.defaults.animation = false;
     Chart.defaults.maintainAspectRatio = false;
@@ -344,6 +344,11 @@ PAGE_JS = """
             ds.pointBackgroundColor = accent;
             ds.backgroundColor = chart.$isBar ? accent : css('--accent-soft');
         }
+        const drag = chart.options.plugins.zoom && chart.options.plugins.zoom.zoom.drag;
+        if (drag) {
+            drag.backgroundColor = css('--accent-soft');
+            drag.borderColor = accent;
+        }
         // Full update (animation is off anyway) so cached bar colors are re-resolved
         chart.update();
     }
@@ -358,44 +363,35 @@ PAGE_JS = """
         return chart;
     }
 
-    // Drag across the chart to view that time range
-    function enableDragZoom(chart) {
-        const canvas = chart.canvas;
-        const box = document.createElement('div');
-        box.className = 'drag-box';
-        box.hidden = true;
-        canvas.parentNode.appendChild(box);
-        let x0 = null;
-        const px = e => {
-            const r = canvas.getBoundingClientRect(), a = chart.chartArea;
-            return Math.min(Math.max(e.clientX - r.left, a.left), a.right);
-        };
-        canvas.addEventListener('pointerdown', e => {
-            if (e.button !== 0) return;
-            x0 = px(e);
-            canvas.setPointerCapture(e.pointerId);
-        });
-        canvas.addEventListener('pointermove', e => {
-            if (x0 === null) return;
-            const x1 = px(e), a = chart.chartArea;
-            Object.assign(box.style, {
-                left: Math.min(x0, x1) + 'px', width: Math.abs(x1 - x0) + 'px',
-                top: a.top + 'px', height: (a.bottom - a.top) + 'px',
-            });
-            box.hidden = false;
-        });
-        const finish = e => {
-            if (x0 === null) return;
-            const x1 = px(e), lo = Math.min(x0, x1), hi = Math.max(x0, x1);
-            x0 = null;
-            box.hidden = true;
-            if (hi - lo < 8) return;
-            const a = new Date(chart.scales.x.getValueForPixel(lo));
-            const b = new Date(chart.scales.x.getValueForPixel(hi));
-            if (b - a >= 2 * 60 * 1000) go(a, b);
-        };
-        canvas.addEventListener('pointerup', finish);
-        canvas.addEventListener('pointercancel', () => { x0 = null; box.hidden = true; });
+    const DAY = 24 * 3600 * 1000;
+    const loadedMin = new Date(DATA.start).getTime(), loadedMax = new Date(DATA.end).getTime();
+
+    function niceCeil(v) {
+        const p = Math.pow(10, Math.floor(Math.log10(v)));
+        return [1, 2, 2.5, 5, 10].map(m => m * p).find(n => n >= v);
+    }
+
+    // Fit the y axis and point size to what's visible, and show the reset/load controls
+    function onViewChange(chart) {
+        let {min, max} = chart.scales.x;
+        if (!(max > min)) {
+            // Chart hasn't been laid out yet (e.g. zero size on first paint)
+            min = loadedMin;
+            max = loadedMax;
+        }
+        const visible = chart.data.datasets[0].data.filter(p => p.x >= min && p.x <= max);
+        const peak = Math.max(0, ...visible.map(p => p.y || 0));
+        chart.options.scales.y.max = peak > 0 ? niceCeil(peak * 1.05) : undefined;
+        chart.data.datasets[0].pointRadius = visible.length > 150 ? 0 : 2.5;
+        chart.update();  // full update so cached point sizes are re-resolved
+
+        viewChanged = Math.abs(min - loadedMin) > 1000 || Math.abs(max - loadedMax) > 1000;
+        document.getElementById('zoom-reset').disabled = !viewChanged;
+        const load = document.getElementById('zoom-load');
+        const tooLong = max - min > 90 * DAY;
+        load.hidden = !viewChanged;
+        load.disabled = tooLong;
+        load.textContent = tooLong ? 'Too long to load (max 90 days)' : 'Load this range';
     }
 
     const util = makeChart('util-chart', {
@@ -404,7 +400,6 @@ PAGE_JS = """
             datasets: [{
                 data: DATA.util.map(r => ({x: new Date(r.t).getTime(), y: r.u, d: r.d})),
                 borderWidth: 1.5,
-                pointRadius: DATA.util.length > 150 ? 0 : 2.5,
                 pointHoverRadius: 4,
                 fill: true,
             }],
@@ -412,6 +407,24 @@ PAGE_JS = """
         options: {
             interaction: {mode: 'nearest', axis: 'x', intersect: false},
             plugins: {
+                zoom: {
+                    pan: {
+                        enabled: true,
+                        mode: 'x',
+                        // Shift+drag is box zoom, so don't pan then
+                        onPanStart: ({event}) => !(event.srcEvent && event.srcEvent.shiftKey),
+                        onPanComplete: ({chart}) => onViewChange(chart),
+                    },
+                    zoom: {
+                        mode: 'x',
+                        wheel: {enabled: true},
+                        pinch: {enabled: true},
+                        drag: {enabled: true, modifierKey: 'shift', borderWidth: 1},
+                        onZoomComplete: ({chart}) => onViewChange(chart),
+                    },
+                    // Up to 90 days before the loaded range, and no further forward than now
+                    limits: {x: {min: loadedMin - 90 * DAY, max: Math.max(loadedMax, Date.now()), minRange: 10 * 60 * 1000}},
+                },
                 tooltip: {
                     callbacks: {
                         label: item => item.parsed.y === null
@@ -429,11 +442,21 @@ PAGE_JS = """
                     ticks: {maxRotation: 0, autoSkipPadding: 20},
                     grid: {},
                 },
-                y: {beginAtZero: true, ticks: {callback: v => v + '%'}, grid: {}},
+                y: {beginAtZero: true, ticks: {callback: v => +v.toPrecision(3) + '%'}, grid: {}},
             },
         },
     });
-    if (util) enableDragZoom(util);
+    if (util) {
+        // Let vertical swipes scroll the page on phones; horizontal drags and pinches still go to the chart
+        util.canvas.style.touchAction = 'pan-y';
+        const reset = () => { util.resetZoom(); onViewChange(util); };
+        document.getElementById('zoom-in').onclick = () => { util.zoom(1.5); onViewChange(util); };
+        document.getElementById('zoom-out').onclick = () => { util.zoom(1 / 1.5); onViewChange(util); };
+        document.getElementById('zoom-reset').onclick = reset;
+        util.canvas.addEventListener('dblclick', reset);
+        document.getElementById('zoom-load').onclick = () => go(new Date(util.scales.x.min), new Date(util.scales.x.max));
+        onViewChange(util);
+    }
 
     // Click a day to view it
     makeChart('perday-chart', {
@@ -519,7 +542,7 @@ def handle_sumppump():
     range_label = f'{fmt_short(start)} &rarr; {"now" if live else fmt_short(end)}'
 
     # Content
-    chart_data = {'start': fmt_iso(start), 'end': fmt_iso(min(end, now) if live else end), 'util': [], 'per_day': []}
+    chart_data = {'start': fmt_iso(start), 'end': fmt_iso(min(end, now) if live else end), 'live': live, 'util': [], 'per_day': []}
     content = ""
     if error is not None:
         content = f'<section class="card error">{html.escape(error)}</section>'
@@ -562,8 +585,18 @@ def handle_sumppump():
         content = f"""
             <section class="tiles">{tiles}</section>
             <section class="card">
-                <h2>Utilization</h2>
-                <p class="hint">Drag across the chart to zoom in</p>
+                <div class="card-head">
+                    <div>
+                        <h2>Utilization</h2>
+                        <p class="hint">Scroll or pinch to zoom &middot; drag to pan &middot; Shift+drag to zoom to a region &middot; double-click to reset</p>
+                    </div>
+                    <div class="chart-tools">
+                        <button class="btn" id="zoom-in" title="Zoom in">+</button>
+                        <button class="btn" id="zoom-out" title="Zoom out">&minus;</button>
+                        <button class="btn" id="zoom-reset" disabled>Reset</button>
+                        <button class="btn primary" id="zoom-load" hidden>Load this range</button>
+                    </div>
+                </div>
                 <div class="chart-box"><canvas id="util-chart"></canvas></div>
             </section>
             {perday_card}
@@ -578,8 +611,6 @@ def handle_sumppump():
                 </div>
             </section>"""
 
-    refresh = '<meta http-equiv="refresh" content="60">' if live else ""
-
     lprint("Making html...")
     html_out = f"""<!doctype html>
     <html>
@@ -587,10 +618,11 @@ def handle_sumppump():
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sump Pump</title>
-    {refresh}
     <style>{PAGE_CSS}</style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     </head>
     <body>
     <header class="topbar">
