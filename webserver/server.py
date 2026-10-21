@@ -58,7 +58,9 @@ def handle_sumppump():
     latest_ts_age_style = "color: white; background-color: red;"
     df.set_index(pd.DatetimeIndex(df['ts']), inplace=True)
     df['ts'] = df.index
-    df['amps4_filtered'] = df.amps4.rolling(pd.Timedelta('5s')).mean() - df.amps4.rolling(pd.Timedelta('1m')).mean()
+    # amps3 has no load but picks up the same crosstalk as amps4 (~5% of mains current),
+    # so subtracting it leaves just the sump pump.  Median smooths over mid-run current dips.
+    df['amps4_filtered'] = (df.amps4 - df.amps3).rolling(pd.Timedelta('5s')).median()
     df['running'] = df['amps4_filtered'] > 1.0
     #df = df.set_index(df.ts)
     latest_ts = df.index.max()
