@@ -227,6 +227,7 @@ main {
     padding: 16px;
 }
 .card h2 { margin: 0 0 12px 0; font-size: 15px; font-weight: 600; }
+.card h2 .sub { margin-left: 6px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -284,9 +285,6 @@ main {
 }
 .error { border-color: var(--bad); color: var(--bad); }
 .empty { color: var(--muted); text-align: center; padding: 32px 16px; }
-.peak { margin-left: auto; display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; }
-.peak .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.peak .value { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
 [hidden] { display: none !important; }
 .chart-box { position: relative; height: 280px; }
 .card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
@@ -546,14 +544,13 @@ def handle_sumppump():
     # Content
     chart_data = {'start': fmt_iso(start), 'end': fmt_iso(min(end, now) if live else end), 'live': live, 'util': [], 'per_day': []}
     content = ""
-    peak = ""
     if error is not None:
         content = f'<section class="card error">{html.escape(error)}</section>'
     elif len(runs) == 0:
         msg = "No data for this range" if latest_ts is None else "No pump runs in this range"
         content = f'<section class="card empty">{msg}</section>'
     else:
-        peak = f'<div class="peak"><span class="label">Peak utilization</span><span class="value">{fmt_pct(runs.utilization.max())}</span></div>'
+        peak_util = fmt_pct(runs.utilization.max())
 
         chart_data['util'] = [
             {'t': fmt_iso(r.ts), 'u': None if pd.isna(r.utilization) else round(r.utilization, 3), 'd': fmt_duration(r.downtime).replace("&mdash;", "unknown")}
@@ -580,7 +577,7 @@ def handle_sumppump():
             <section class="card">
                 <div class="card-head">
                     <div>
-                        <h2>Utilization</h2>
+                        <h2>Utilization <span class="sub">peak {peak_util}</span></h2>
                     </div>
                     <div class="chart-tools">
                         <button class="btn" id="zoom-in" title="Zoom in">+</button>
@@ -637,7 +634,6 @@ def handle_sumppump():
                     <button class="btn primary" type="submit">Go</button>
                 </form>
             </details>
-            {peak}
         </section>
         {content}
     </main>
