@@ -5,6 +5,7 @@ from flask import request
 import functools
 import html
 import json
+import os
 from urllib.parse import urlencode
 
 import numpy as np
@@ -61,6 +62,50 @@ def load_pump_runs(start, end):
     runs['utilization'] = 100.0 * PUMP_RUN_TIME.total_seconds() / (runs['downtime'].dt.total_seconds() + PUMP_RUN_TIME.total_seconds())
     runs = runs[(runs.ts >= start) & (runs.ts <= end)]
     return runs, latest_ts
+
+
+def rain_day(datestr, mtime=None):
+    """Rain that fell in each 5-minute reading of one day's weather log, as ((ts, inches), ...) for
+    readings with rain, plus whether the day had any readings at all."""
+    df = pd.read_csv(f"{LOG_DIR}/{datestr}_weather.csv", usecols=['ts', 'epoch', 'precipTotal'])
+    # precipTotal is the station's running total since local midnight.  Sort by epoch, since ts repeats an hour when DST ends.
+    df = df.dropna(subset=['epoch', 'precipTotal']).sort_values('epoch')
+    if len(df) == 0:
+        return (), False
+    rain = df.precipTotal.diff().fillna(df.precipTotal).clip(lower=0)
+    ts = pd.to_datetime(df.ts, errors='coerce')
+    return tuple((t, r) for t, r in zip(ts, rain) if r > 0 and not pd.isna(t)), True
+
+# Keyed on file mtime too: the downloader rewrites yesterday's file once after midnight
+cached_rain_day = functools.lru_cache(maxsize=None)(rain_day)
+
+
+def load_rain(start, end):
+    """Running rain total since start, as [(ts, inches), ...] at start, each change, and end.
+    None if there's no weather data for the range."""
+    today = Timestamp('now').normalize()
+    changes = []
+    have_data = False
+    for day in pd.date_range(start.normalize(), end.normalize(), freq='D'):
+        datestr = str(day)[:10]
+        try:
+            if day < today:
+                day_rain, day_has_data = cached_rain_day(datestr, os.path.getmtime(f"{LOG_DIR}/{datestr}_weather.csv"))
+            else:
+                day_rain, day_has_data = rain_day(datestr)
+        except FileNotFoundError:
+            continue
+        have_data = have_data or day_has_data
+        changes.extend(c for c in day_rain if start < c[0] <= end)
+    if not have_data:
+        return None
+    total = 0.0
+    points = [(start, 0.0)]
+    for t, r in changes:
+        total += r
+        points.append((t, round(total, 2)))
+    points.append((end, round(total, 2)))
+    return points
 
 
 def parse_time(s):
@@ -150,6 +195,7 @@ PAGE_CSS = """
     --bad: #d64545;
     --grid: #eceef1;
     --stripe: #f8f9fb;
+    --rain: #0d9488;
     color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -165,6 +211,7 @@ PAGE_CSS = """
         --bad: #f06464;
         --grid: #262b32;
         --stripe: #1f242b;
+        --rain: #2dd4bf;
         color-scheme: dark;
     }
 }
@@ -336,10 +383,13 @@ PAGE_JS = """
             scale.border = {display: false};
         }
         for (const ds of chart.data.datasets) {
-            ds.borderColor = accent;
-            ds.pointBackgroundColor = accent;
-            ds.backgroundColor = chart.$isBar ? accent : css('--accent-soft');
+            // Datasets can name their own color variable (the rain line); default is the accent
+            const color = ds.colorVar ? css(ds.colorVar) : accent;
+            ds.borderColor = color;
+            ds.pointBackgroundColor = color;
+            ds.backgroundColor = chart.$isBar || ds.colorVar ? color : css('--accent-soft');
         }
+        chart.options.plugins.legend.labels.color = muted;
         const drag = chart.options.plugins.zoom && chart.options.plugins.zoom.zoom.drag;
         if (drag) {
             drag.backgroundColor = css('--accent-soft');
@@ -362,9 +412,32 @@ PAGE_JS = """
     const DAY = 24 * 3600 * 1000;
     const loadedMin = new Date(DATA.start).getTime(), loadedMax = new Date(DATA.end).getTime();
 
+    // Running rain total since the loaded range's start; DATA.rain is null when there's no weather data
+    const rainRaw = (DATA.rain || []).map(r => ({x: new Date(r.t).getTime(), c: r.c}));
+    let rainBase = 0;
+
+    function rainAt(t) {
+        let lo = 0, hi = rainRaw.length - 1, c = 0;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (rainRaw[mid].x <= t) { c = rainRaw[mid].c; lo = mid + 1; } else { hi = mid - 1; }
+        }
+        return c;
+    }
+
+    // Hover picks the nearest pump run by time; the rain line is read off at that time in the tooltip
+    Chart.Interaction.modes.nearestRun = (chart, e) => {
+        let best = null, bestDist = Infinity;
+        chart.getDatasetMeta(0).data.forEach((el, index) => {
+            const dist = Math.abs(el.x - e.x);
+            if (dist < bestDist) { bestDist = dist; best = {element: el, datasetIndex: 0, index}; }
+        });
+        return best ? [best] : [];
+    };
+
     function niceCeil(v) {
         const p = Math.pow(10, Math.floor(Math.log10(v)));
-        return [1, 2, 2.5, 5, 10].map(m => m * p).find(n => n >= v);
+        return [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map(m => m * p).find(n => n >= v - 1e-9);
     }
 
     // Fit the y axis and point size to what's visible, and show the reset/load controls
@@ -380,8 +453,16 @@ PAGE_JS = """
         chart.options.scales.y.max = peak > 0 ? niceCeil(peak * 1.05) : undefined;
         // Title's peak follows the visible range (same rounding as the server's fmt_pct)
         const known = visible.filter(p => p.y !== null);
-        document.getElementById('util-peak').textContent = known.length
-            ? `peak ${peak.toFixed(peak < 1 ? 2 : 1)}%` : 'peak \u2014';
+        let subtitle = known.length ? `peak ${peak.toFixed(peak < 1 ? 2 : 1)}%` : 'peak \u2014';
+        if (DATA.rain) {
+            // Rain line starts from zero at the left edge of the view
+            rainBase = rainAt(min);
+            const rainTotal = rainAt(max) - rainBase;
+            chart.data.datasets[1].data = rainRaw.map(p => ({x: p.x, y: +(p.c - rainBase).toFixed(2)}));
+            chart.options.scales.rain.max = niceCeil(Math.max(rainTotal, 0.1) * 1.05);
+            subtitle += ` \u00b7 rain ${rainTotal.toFixed(2)} in`;
+        }
+        document.getElementById('util-peak').textContent = subtitle;
         chart.data.datasets[0].pointRadius = visible.length > 150 ? 0 : 2.5;
         // Label days once the view spans more than 2 days; closer in, let Chart.js pick hours/minutes
         chart.options.scales.x.time.unit = max - min > 2 * DAY ? 'day' : false;
@@ -400,15 +481,27 @@ PAGE_JS = """
         type: 'line',
         data: {
             datasets: [{
+                label: 'Utilization',
                 data: DATA.util.map(r => ({x: new Date(r.t).getTime(), y: r.u, d: r.d})),
                 borderWidth: 1.5,
                 pointHoverRadius: 4,
                 fill: true,
-            }],
+            }].concat(DATA.rain ? [{
+                label: 'Rain since view start',
+                data: [],
+                yAxisID: 'rain',
+                colorVar: '--rain',
+                stepped: 'after',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                fill: false,
+            }] : []),
         },
         options: {
-            interaction: {mode: 'nearest', axis: 'x', intersect: false},
+            interaction: {mode: 'nearestRun', intersect: false},
             plugins: {
+                legend: {display: !!DATA.rain, align: 'end', labels: {boxWidth: 12, boxHeight: 2}},
                 zoom: {
                     pan: {
                         enabled: true,
@@ -429,9 +522,10 @@ PAGE_JS = """
                 },
                 tooltip: {
                     callbacks: {
-                        label: item => item.parsed.y === null
-                            ? 'Utilization unknown'
-                            : [`Utilization ${item.parsed.y.toFixed(item.parsed.y < 1 ? 2 : 1)}%`, `Downtime before ${item.raw.d}`],
+                        label: item => (item.parsed.y === null
+                            ? ['Utilization unknown']
+                            : [`Utilization ${item.parsed.y.toFixed(item.parsed.y < 1 ? 2 : 1)}%`, `Downtime before ${item.raw.d}`])
+                            .concat(DATA.rain ? [`Rain since view start ${(rainAt(item.parsed.x) - rainBase).toFixed(2)} in`] : []),
                     },
                 },
             },
@@ -444,7 +538,9 @@ PAGE_JS = """
                     ticks: {maxRotation: 0, autoSkipPadding: 20},
                     grid: {},
                 },
-                y: {beginAtZero: true, ticks: {callback: v => +v.toPrecision(3) + '%'}, grid: {}},
+                // includeBounds off: don't label the rounded-up axis max when it falls between regular ticks
+                y: {beginAtZero: true, ticks: {includeBounds: false, callback: v => +v.toPrecision(3) + '%'}, grid: {}},
+                ...(DATA.rain ? {rain: {position: 'right', min: 0, ticks: {includeBounds: false, callback: v => +v.toPrecision(3) + ' in'}, grid: {drawOnChartArea: false}}} : {}),
             },
         },
     });
@@ -516,6 +612,8 @@ def handle_sumppump():
         lprint(f"Loading {start} to {end}...")
         runs, latest_ts = load_pump_runs(start, end)
         lprint(f"{len(runs)} runs, latest_ts={latest_ts}")
+        rain = load_rain(start, end)
+        lprint("no weather data" if rain is None else f"{len(rain)} rain points, {rain[-1][1]} in")
 
     # Status pill
     if error is not None:
@@ -546,7 +644,7 @@ def handle_sumppump():
     range_label = f'{fmt_short(start)} &rarr; {"now" if live else fmt_short(end)}'
 
     # Content
-    chart_data = {'start': fmt_iso(start), 'end': fmt_iso(min(end, now) if live else end), 'live': live, 'util': [], 'per_day': []}
+    chart_data = {'start': fmt_iso(start), 'end': fmt_iso(min(end, now) if live else end), 'live': live, 'util': [], 'per_day': [], 'rain': None}
     content = ""
     if error is not None:
         content = f'<section class="card error">{html.escape(error)}</section>'
@@ -554,7 +652,10 @@ def handle_sumppump():
         msg = "No data for this range" if latest_ts is None else "No pump runs in this range"
         content = f'<section class="card empty">{msg}</section>'
     else:
-        peak_util = fmt_pct(runs.utilization.max())
+        subtitle = f"peak {fmt_pct(runs.utilization.max())}"
+        if rain is not None:
+            subtitle += f" &middot; rain {rain[-1][1]:.2f} in"
+            chart_data['rain'] = [{'t': fmt_iso(t), 'c': c} for t, c in rain]
 
         chart_data['util'] = [
             {'t': fmt_iso(r.ts), 'u': None if pd.isna(r.utilization) else round(r.utilization, 3), 'd': fmt_duration(r.downtime).replace("&mdash;", "unknown")}
@@ -581,7 +682,7 @@ def handle_sumppump():
             <section class="card">
                 <div class="card-head">
                     <div>
-                        <h2>Utilization <span class="sub" id="util-peak">peak {peak_util}</span></h2>
+                        <h2>Utilization <span class="sub" id="util-peak">{subtitle}</span></h2>
                     </div>
                     <div class="chart-tools">
                         <button class="btn" id="zoom-in" title="Zoom in">+</button>
