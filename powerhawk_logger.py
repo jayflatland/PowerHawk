@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import socket
 #import sys
 from pandas import Timestamp, Timedelta
@@ -43,8 +44,18 @@ while True:
             logfd.close()
         cur_logfile_date = datestr
         print(f"Opening log {cur_logfile_date}")
-        logfd = open(f"logs/{datestr}_housepower.csv", "w")
-        print("ts,amps1,amps2,amps3,amps4", file=logfd)
+        logpath = f"logs/{datestr}_housepower.csv"
+        # Append so a restart doesn't wipe the day's earlier readings
+        existing_size = os.path.getsize(logpath) if os.path.exists(logpath) else 0
+        logfd = open(logpath, "a")
+        if existing_size == 0:
+            print("ts,amps1,amps2,amps3,amps4", file=logfd)
+        else:
+            # If the last write was cut off (e.g. power loss), start on a fresh line
+            with open(logpath, "rb") as f:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    print(file=logfd)
 
     print(f"{nowstr},{amps_1},{amps_2},{amps_3},{amps_4}", file=logfd)
     logfd.flush()
