@@ -226,8 +226,7 @@ main {
     border-radius: 10px;
     padding: 16px;
 }
-.card h2 { margin: 0 0 4px 0; font-size: 15px; font-weight: 600; }
-.hint { margin: 0 0 12px 0; font-size: 12px; color: var(--muted); }
+.card h2 { margin: 0 0 12px 0; font-size: 15px; font-weight: 600; }
 .toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -565,7 +564,6 @@ def handle_sumppump():
             perday_card = """
             <section class="card">
                 <h2>Runs per day</h2>
-                <p class="hint">Click a day to view it</p>
                 <div class="chart-box"><canvas id="perday-chart"></canvas></div>
             </section>"""
 
@@ -575,14 +573,12 @@ def handle_sumppump():
             f'<tr><td>{fmt_ts(r.ts)}</td><td class="num">{fmt_duration(r.downtime)}</td>'
             f'<td class="num">{fmt_pct(r.utilization)}</td></tr>'
             for r in tbl_runs.itertuples())
-        tbl_hint = f"Most recent {len(tbl_runs)} of {len(runs)}" if len(tbl_runs) < len(runs) else f"All {len(runs)} runs, newest first"
 
         content = f"""
             <section class="card">
                 <div class="card-head">
                     <div>
                         <h2>Utilization</h2>
-                        <p class="hint">Scroll or pinch to zoom &middot; drag to pan &middot; Shift+drag to zoom to a region &middot; double-click to reset</p>
                     </div>
                     <div class="chart-tools">
                         <button class="btn" id="zoom-in" title="Zoom in">+</button>
@@ -596,7 +592,6 @@ def handle_sumppump():
             {perday_card}
             <section class="card">
                 <h2>Pump runs</h2>
-                <p class="hint">{tbl_hint}</p>
                 <div class="tablebox">
                     <table class="runs">
                         <thead><tr><th>Started</th><th class="num">Downtime before</th><th class="num">Utilization</th></tr></thead>
