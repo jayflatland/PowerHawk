@@ -381,6 +381,8 @@ PAGE_JS = """
         const peak = Math.max(0, ...visible.map(p => p.y || 0));
         chart.options.scales.y.max = peak > 0 ? niceCeil(peak * 1.05) : undefined;
         chart.data.datasets[0].pointRadius = visible.length > 150 ? 0 : 2.5;
+        // Label days once the view spans more than 2 days; closer in, let Chart.js pick hours/minutes
+        chart.options.scales.x.time.unit = max - min > 2 * DAY ? 'day' : false;
         chart.update();  // full update so cached point sizes are re-resolved
 
         viewChanged = Math.abs(min - loadedMin) > 1000 || Math.abs(max - loadedMax) > 1000;
