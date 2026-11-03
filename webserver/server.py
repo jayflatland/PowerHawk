@@ -15,7 +15,7 @@ app = flask.Flask("server")
 
 LOG_DIR = "/opt/PowerHawk/logs"
 MAX_RANGE = pd.Timedelta(days=90)
-PRESETS = [("6h", 6), ("24h", 24), ("3d", 72), ("7d", 168), ("30d", 720), ("90d", 2160)]
+PRESETS = [("1h", 1), ("6h", 6), ("24h", 24), ("3d", 72), ("7d", 168), ("30d", 720), ("90d", 2160)]
 PUMP_RUN_TIME = pd.Timedelta(10.0, unit='s')
 
 
@@ -269,6 +269,10 @@ main {
 .btn:hover { background: var(--stripe); }
 .btn.disabled { opacity: 0.35; pointer-events: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.custom { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.custom summary { list-style: none; }
+.custom summary::-webkit-details-marker { display: none; }
+.custom[open] summary { background: var(--stripe); }
 .rangeform { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); }
 .rangeform input {
     height: 32px;
@@ -283,7 +287,7 @@ main {
 .empty { color: var(--muted); text-align: center; padding: 32px 16px; }
 .tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 16px;
 }
 .tile .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -539,6 +543,8 @@ def handle_sumppump():
         later_link = '<span class="btn disabled">&#9654;</span>'
     else:
         later_link = f'<a class="btn" href="{range_url(end, end + span, now)}" title="Later">&#9654;</a>'
+    # Custom range picker stays collapsed unless the page is showing a custom range
+    custom_open = " open" if request.args.get('start') or request.args.get('end') else ""
     range_label = f'{fmt_short(start)} &rarr; {"now" if live else fmt_short(end)}'
 
     # Content
@@ -550,14 +556,8 @@ def handle_sumppump():
         msg = "No data for this range" if latest_ts is None else "No pump runs in this range"
         content = f'<section class="card empty">{msg}</section>'
     else:
-        valid = runs.dropna()
-        avg_util = fmt_pct(valid.utilization.mean())
-        peak_util = fmt_pct(valid.utilization.max())
-        longest_gap = fmt_duration(valid.downtime.max()) if len(valid) else "&mdash;"
-        tiles = "".join(
-            f'<div class="card tile"><div class="label">{label}</div><div class="value">{value}</div></div>'
-            for label, value in [("Runs", len(runs)), ("Avg utilization", avg_util),
-                                 ("Peak utilization", peak_util), ("Longest gap", longest_gap)])
+        peak_util = fmt_pct(runs.utilization.max())
+        tiles = f'<div class="card tile"><div class="label">Peak utilization</div><div class="value">{peak_util}</div></div>'
 
         chart_data['util'] = [
             {'t': fmt_iso(r.ts), 'u': None if pd.isna(r.utilization) else round(r.utilization, 3), 'd': fmt_duration(r.downtime).replace("&mdash;", "unknown")}
@@ -637,12 +637,15 @@ def handle_sumppump():
                 <span class="range-label">{range_label}</span>
                 {later_link}
             </div>
-            <form class="rangeform" method="get">
-                <input type="datetime-local" name="start" value="{fmt_time(start)}" aria-label="Start">
-                to
-                <input type="datetime-local" name="end" value="{"" if live else fmt_time(end)}" aria-label="End" title="Leave blank for now">
-                <button class="btn primary" type="submit">Go</button>
-            </form>
+            <details class="custom"{custom_open}>
+                <summary class="btn" title="Pick a custom date range">Custom&hellip;</summary>
+                <form class="rangeform" method="get">
+                    <input type="datetime-local" name="start" value="{fmt_time(start)}" aria-label="Start">
+                    to
+                    <input type="datetime-local" name="end" value="{"" if live else fmt_time(end)}" aria-label="End" title="Leave blank for now">
+                    <button class="btn primary" type="submit">Go</button>
+                </form>
+            </details>
         </section>
         {content}
     </main>
