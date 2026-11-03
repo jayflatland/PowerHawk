@@ -374,6 +374,7 @@ PAGE_JS = """
     Chart.defaults.animation = false;
     Chart.defaults.maintainAspectRatio = false;
     Chart.defaults.plugins.legend.display = false;
+    Chart.defaults.plugins.tooltip.enabled = false;
 
     function applyTheme(chart) {
         const accent = css('--accent'), muted = css('--muted'), grid = css('--grid');
@@ -414,7 +415,6 @@ PAGE_JS = """
 
     // Running rain total since the loaded range's start; DATA.rain is null when there's no weather data
     const rainRaw = (DATA.rain || []).map(r => ({x: new Date(r.t).getTime(), c: r.c}));
-    let rainBase = 0;
 
     function rainAt(t) {
         let lo = 0, hi = rainRaw.length - 1, c = 0;
@@ -424,16 +424,6 @@ PAGE_JS = """
         }
         return c;
     }
-
-    // Hover picks the nearest pump run by time; the rain line is read off at that time in the tooltip
-    Chart.Interaction.modes.nearestRun = (chart, e) => {
-        let best = null, bestDist = Infinity;
-        chart.getDatasetMeta(0).data.forEach((el, index) => {
-            const dist = Math.abs(el.x - e.x);
-            if (dist < bestDist) { bestDist = dist; best = {element: el, datasetIndex: 0, index}; }
-        });
-        return best ? [best] : [];
-    };
 
     function niceCeil(v) {
         const p = Math.pow(10, Math.floor(Math.log10(v)));
@@ -456,14 +446,15 @@ PAGE_JS = """
         let subtitle = known.length ? `peak ${peak.toFixed(peak < 1 ? 2 : 1)}%` : 'peak \u2014';
         if (DATA.rain) {
             // Rain line starts from zero at the left edge of the view
-            rainBase = rainAt(min);
+            const rainBase = rainAt(min);
             const rainTotal = rainAt(max) - rainBase;
             chart.data.datasets[1].data = rainRaw.map(p => ({x: p.x, y: +(p.c - rainBase).toFixed(2)}));
             chart.options.scales.rain.max = niceCeil(Math.max(rainTotal, 0.1) * 1.05);
             subtitle += ` \u00b7 rain ${rainTotal.toFixed(2)} in`;
         }
         document.getElementById('util-peak').textContent = subtitle;
-        chart.data.datasets[0].pointRadius = visible.length > 150 ? 0 : 2.5;
+        // Hover size matches, so points don't grow under the mouse
+        chart.data.datasets[0].pointRadius = chart.data.datasets[0].pointHoverRadius = visible.length > 150 ? 0 : 2.5;
         // Label days once the view spans more than 2 days; closer in, let Chart.js pick hours/minutes
         chart.options.scales.x.time.unit = max - min > 2 * DAY ? 'day' : false;
         chart.update();  // full update so cached point sizes are re-resolved
@@ -482,9 +473,8 @@ PAGE_JS = """
         data: {
             datasets: [{
                 label: 'Utilization',
-                data: DATA.util.map(r => ({x: new Date(r.t).getTime(), y: r.u, d: r.d})),
+                data: DATA.util.map(r => ({x: new Date(r.t).getTime(), y: r.u})),
                 borderWidth: 1.5,
-                pointHoverRadius: 4,
                 fill: true,
             }].concat(DATA.rain ? [{
                 label: 'Rain since view start',
@@ -499,7 +489,6 @@ PAGE_JS = """
             }] : []),
         },
         options: {
-            interaction: {mode: 'nearestRun', intersect: false},
             plugins: {
                 legend: {display: !!DATA.rain, align: 'end', labels: {boxWidth: 12, boxHeight: 2}},
                 zoom: {
@@ -520,21 +509,12 @@ PAGE_JS = """
                     // Up to 90 days before the loaded range, and no further forward than now
                     limits: {x: {min: loadedMin - 90 * DAY, max: Math.max(loadedMax, Date.now()), minRange: 10 * 60 * 1000}},
                 },
-                tooltip: {
-                    callbacks: {
-                        label: item => (item.parsed.y === null
-                            ? ['Utilization unknown']
-                            : [`Utilization ${item.parsed.y.toFixed(item.parsed.y < 1 ? 2 : 1)}%`, `Downtime before ${item.raw.d}`])
-                            .concat(DATA.rain ? [`Rain since view start ${(rainAt(item.parsed.x) - rainBase).toFixed(2)} in`] : []),
-                    },
-                },
             },
             scales: {
                 x: {
                     type: 'time',
                     min: new Date(DATA.start).getTime(),
                     max: new Date(DATA.end).getTime(),
-                    time: {tooltipFormat: 'MMM d, h:mm:ss a'},
                     ticks: {maxRotation: 0, autoSkipPadding: 20},
                     grid: {},
                 },
@@ -573,9 +553,8 @@ PAGE_JS = """
                 go(day, new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1));
             },
             onHover: (e, elements) => { e.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
-            plugins: {tooltip: {callbacks: {label: item => `${item.parsed.y} runs`}}},
             scales: {
-                x: {type: 'time', offset: true, time: {unit: 'day', tooltipFormat: 'EEE, MMM d'}, ticks: {maxRotation: 0, autoSkipPadding: 20}, grid: {}},
+                x: {type: 'time', offset: true, time: {unit: 'day'}, ticks: {maxRotation: 0, autoSkipPadding: 20}, grid: {}},
                 y: {beginAtZero: true, ticks: {precision: 0}, grid: {}},
             },
         },
@@ -658,7 +637,7 @@ def handle_sumppump():
             chart_data['rain'] = [{'t': fmt_iso(t), 'c': c} for t, c in rain]
 
         chart_data['util'] = [
-            {'t': fmt_iso(r.ts), 'u': None if pd.isna(r.utilization) else round(r.utilization, 3), 'd': fmt_duration(r.downtime).replace("&mdash;", "unknown")}
+            {'t': fmt_iso(r.ts), 'u': None if pd.isna(r.utilization) else round(r.utilization, 3)}
             for r in runs.itertuples()]
         perday_card = ""
         if span >= pd.Timedelta(days=7):
