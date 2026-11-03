@@ -378,6 +378,10 @@ PAGE_JS = """
         const visible = chart.data.datasets[0].data.filter(p => p.x >= min && p.x <= max);
         const peak = Math.max(0, ...visible.map(p => p.y || 0));
         chart.options.scales.y.max = peak > 0 ? niceCeil(peak * 1.05) : undefined;
+        // Title's peak follows the visible range (same rounding as the server's fmt_pct)
+        const known = visible.filter(p => p.y !== null);
+        document.getElementById('util-peak').textContent = known.length
+            ? `peak ${peak.toFixed(peak < 1 ? 2 : 1)}%` : 'peak \u2014';
         chart.data.datasets[0].pointRadius = visible.length > 150 ? 0 : 2.5;
         // Label days once the view spans more than 2 days; closer in, let Chart.js pick hours/minutes
         chart.options.scales.x.time.unit = max - min > 2 * DAY ? 'day' : false;
@@ -577,7 +581,7 @@ def handle_sumppump():
             <section class="card">
                 <div class="card-head">
                     <div>
-                        <h2>Utilization <span class="sub">peak {peak_util}</span></h2>
+                        <h2>Utilization <span class="sub" id="util-peak">peak {peak_util}</span></h2>
                     </div>
                     <div class="chart-tools">
                         <button class="btn" id="zoom-in" title="Zoom in">+</button>
