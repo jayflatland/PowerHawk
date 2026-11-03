@@ -64,20 +64,39 @@ def load_pump_runs(start, end):
     return runs, latest_ts
 
 
+def read_rain_log(path):
+    try:
+        df = pd.read_csv(path, usecols=['ts', 'epoch', 'precipTotal'])
+    except FileNotFoundError:
+        return pd.DataFrame(columns=['ts', 'epoch', 'precipTotal'])
+    df['epoch'] = pd.to_numeric(df['epoch'], errors='coerce')
+    df['precipTotal'] = pd.to_numeric(df['precipTotal'], errors='coerce')
+    return df.dropna(subset=['epoch', 'precipTotal'])
+
+
 def rain_day(datestr, mtime=None):
-    """Rain that fell in each 5-minute reading of one day's weather log, as ((ts, inches), ...) for
+    """Rain that fell in each reading of one day's weather logs, as ((ts, inches), ...) for
     readings with rain, plus whether the day had any readings at all."""
-    df = pd.read_csv(f"{LOG_DIR}/{datestr}_weather.csv", usecols=['ts', 'epoch', 'precipTotal'])
+    df = read_rain_log(f"{LOG_DIR}/{datestr}_weather.csv")
+    # Latest single readings, for the time since the last 5-minute reading (the API caches those for 15 minutes)
+    current = read_rain_log(f"{LOG_DIR}/{datestr}_weather_current.csv")
+    if len(df) > 0:
+        current = current[current.epoch > df.epoch.max()]
     # precipTotal is the station's running total since local midnight.  Sort by epoch, since ts repeats an hour when DST ends.
-    df = df.dropna(subset=['epoch', 'precipTotal']).sort_values('epoch')
+    df = pd.concat([df, current]).sort_values('epoch')
     if len(df) == 0:
         return (), False
     rain = df.precipTotal.diff().fillna(df.precipTotal).clip(lower=0)
     ts = pd.to_datetime(df.ts, errors='coerce')
     return tuple((t, r) for t, r in zip(ts, rain) if r > 0 and not pd.isna(t)), True
 
-# Keyed on file mtime too: the downloader rewrites yesterday's file once after midnight
+# Keyed on file mtimes too: the downloader rewrites yesterday's file once after midnight
 cached_rain_day = functools.lru_cache(maxsize=None)(rain_day)
+
+
+def weather_mtime(datestr):
+    paths = [f"{LOG_DIR}/{datestr}_weather.csv", f"{LOG_DIR}/{datestr}_weather_current.csv"]
+    return max([os.path.getmtime(p) for p in paths if os.path.exists(p)], default=0)
 
 
 def load_rain(start, end):
@@ -88,13 +107,10 @@ def load_rain(start, end):
     have_data = False
     for day in pd.date_range(start.normalize(), end.normalize(), freq='D'):
         datestr = str(day)[:10]
-        try:
-            if day < today:
-                day_rain, day_has_data = cached_rain_day(datestr, os.path.getmtime(f"{LOG_DIR}/{datestr}_weather.csv"))
-            else:
-                day_rain, day_has_data = rain_day(datestr)
-        except FileNotFoundError:
-            continue
+        if day < today:
+            day_rain, day_has_data = cached_rain_day(datestr, weather_mtime(datestr))
+        else:
+            day_rain, day_has_data = rain_day(datestr)
         have_data = have_data or day_has_data
         changes.extend(c for c in day_rain if start < c[0] <= end)
     if not have_data:
